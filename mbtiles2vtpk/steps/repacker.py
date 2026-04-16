@@ -3,8 +3,8 @@ Step 9 – Repack the working directory into a .vtpk archive.
 
 A VTPK file is a ZIP archive (renamed .vtpk).
 Convention:
-  - JSON / text files  → deflate compression
-  - .bundle files      → store (no compression, already binary)
+  - All files → store (ZIP_STORED), no compression.
+  - ArcGIS Pro requires STORE for the entire VTPK archive.
 """
 
 import os
@@ -44,10 +44,9 @@ class Repacker(BaseStep):
                     arc_name = os.path.relpath(abs_path, self.work_dir)
 
                     # Use STORE for bundle files, DEFLATE for everything else
-                    if filename.endswith(".bundle"):
-                        compress = zipfile.ZIP_STORED
-                    else:
-                        compress = zipfile.ZIP_DEFLATED
+                    # ArcGIS Pro requires ZIP_STORED for the entire VTPK.
+                    # DEFLATE on any entry causes a broken package in Pro.
+                    compress = zipfile.ZIP_STORED
 
                     zf.write(abs_path, arc_name, compress_type=compress)
                     size = os.path.getsize(abs_path)
@@ -57,7 +56,7 @@ class Repacker(BaseStep):
                         "  Added: %-55s  %8.1f KB  [%s]",
                         arc_name,
                         size / 1024,
-                        "STORE" if compress == zipfile.ZIP_STORED else "DEFLATE",
+                        "STORE",
                     )
 
         vtpk_size = os.path.getsize(self.output_path)

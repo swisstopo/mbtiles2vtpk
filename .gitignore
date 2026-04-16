@@ -7,6 +7,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.pyc
 .Python
 
 # Virtual environments
@@ -54,6 +55,12 @@ desktop.ini
 # Test / working directories created during conversion
 work_dir/
 _cc_tmp/
+
+# Output VTPK files (large binaries, not meant for the repo)
+*.vtpk
+
+# Input MBTiles files (large binaries, keep out of repo)
+*.mbtiles
 
 # Temporary extraction folders
 */_alllayers/

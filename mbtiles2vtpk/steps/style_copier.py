@@ -1,84 +1,354 @@
 """
-Step 4 – Copy style resources into the VTPK structure.
+Step 4 – Copy / build / download style resources into the VTPK structure.
+
+If a --style URL or path is provided:
+  1. Fetch the Mapbox GL style JSON
+  2. Extract all referenced font names from layers (text-font property)
+  3. Download font PBF glyphs (256 ranges × N fonts)
+  4. Download sprite files (sprite.json/png + @2x variants)
+  5. Patch glyphs/sprite/source URLs for VTPK layout
+  6. Write everything to p12/resources/
+
+If no style is provided:
+  Build a minimal style from MBTiles metadata (existing behaviour).
 """
 
 import json
 import os
 import sqlite3
+import urllib.request
+import urllib.error
+from typing import List, Optional
 
 from .base_step import BaseStep
 from ..logger import get_logger
+from ..cache import fetch as cache_fetch
 
 log = get_logger("StyleCopier")
 
-DEFAULT_STYLE = {
-    "version": 8,
-    "name": "default",
-    "sources": {
-        "esri": {
-            "type": "vector",
-            "url": "."
-        }
-    },
-    "layers": []
-}
+# All Unicode glyph ranges (256 codepoints each)
+GLYPH_RANGES = [f"{i}-{i+255}" for i in range(0, 65536, 256)]
+
+
+def _read_file(path: str) -> bytes:
+    """Read a local file as bytes. Returns None on failure."""
+    try:
+        with open(path, "rb") as fh:
+            return fh.read()
+    except Exception as e:
+        log.warning("    Failed to read %s: %s", path, e)
+        return None
 
 
 class StyleCopier(BaseStep):
     """
-    Extracts the style JSON from the MBTiles metadata (key 'style' or 'json')
-    and writes it to p12/resources/styles/root.json.
-    Falls back to a minimal default style if none is embedded.
+    Handles style resources for the VTPK.
+
+    With --style:
+      - Downloads/reads the Mapbox GL style
+      - Downloads all referenced fonts and sprites
+      - Patches URLs for VTPK local layout
+
+    Without --style:
+      - Builds a minimal style from MBTiles vector_layers metadata
     """
 
-    def __init__(self, mbtiles_path: str, work_dir: str):
+    def __init__(self, mbtiles_path: str, work_dir: str, style_source: Optional[str] = None):
+        """
+        :param mbtiles_path:  Path to source .mbtiles file.
+        :param work_dir:      Working directory (VTPK structure root).
+        :param style_source:  Optional URL or local path to a Mapbox GL style JSON.
+        """
         self.mbtiles_path = mbtiles_path
         self.work_dir = work_dir
-
-    def run(self) -> None:
-        log.info("Looking for embedded style in MBTiles metadata…")
-        style = self._extract_style()
-
-        styles_dir = os.path.join(self.work_dir, "p12", "resources", "styles")
-        out_path = os.path.join(styles_dir, "root.json")
-
-        with open(out_path, "w", encoding="utf-8") as fh:
-            json.dump(style, fh, indent=2)
-        log.info("Style written to: %s", out_path)
+        self.style_source = style_source
 
     # ------------------------------------------------------------------
 
-    def _extract_style(self) -> dict:
+    def run(self) -> None:
+        styles_dir  = os.path.join(self.work_dir, "p12", "resources", "styles")
+        fonts_dir   = os.path.join(self.work_dir, "p12", "resources", "fonts")
+        sprites_dir = os.path.join(self.work_dir, "p12", "resources", "sprites")
+
+        if self.style_source:
+            log.info("External style provided: %s", self.style_source)
+            style = self._load_external_style()
+            if style:
+                fonts  = self._extract_fonts(style)
+                sprite = style.get("sprite", "")
+                self._download_fonts(fonts, style.get("glyphs", ""), fonts_dir)
+                self._download_sprites(sprite, sprites_dir)
+                style  = self._patch_style(style)
+                self._write_style(style, styles_dir)
+                return
+
+            log.warning("Could not load external style — falling back to minimal style.")
+
+        # Fallback: build minimal style from MBTiles metadata
+        log.info("Building minimal style from MBTiles metadata.")
+        meta  = self._read_metadata()
+        style = self._build_minimal_style(meta)
+        self._write_style(style, styles_dir)
+
+    # ------------------------------------------------------------------
+    # External style loading
+    # ------------------------------------------------------------------
+
+    def _load_external_style(self) -> Optional[dict]:
+        src = self.style_source
+        if src.startswith("http://") or src.startswith("https://"):
+            log.info("  Fetching style from URL (cache then network)…")
+            data = cache_fetch(src, category="styles")
+            raw  = data.decode("utf-8") if data else None
+        else:
+            log.info("  Reading style from local file…")
+            data = _read_file(src)
+            raw  = data.decode("utf-8") if data else None
+
+        if raw is None:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            log.error("  Style JSON parse error: %s", e)
+            return None
+
+    # ------------------------------------------------------------------
+    # Font downloading
+    # ------------------------------------------------------------------
+
+    def _extract_fonts(self, style: dict) -> List[str]:
+        """Return unique font names referenced in style layers."""
+        fonts = set()
+        for layer in style.get("layers", []):
+            layout = layer.get("layout", {})
+            tf = layout.get("text-font")
+            if isinstance(tf, list):
+                # Either ["FontName"] or ["get","text-font"] expression
+                for item in tf:
+                    if isinstance(item, str) and item not in ("get", "step", "match"):
+                        fonts.add(item)
+            elif isinstance(tf, str):
+                fonts.add(tf)
+        if fonts:
+            log.info("  Fonts referenced in style: %s", sorted(fonts))
+        else:
+            log.info("  No fonts found in style layers.")
+        return sorted(fonts)
+
+    def _download_fonts(self, fonts: List[str], glyphs_url_template: str, fonts_dir: str) -> None:
+        """
+        Download PBF glyph files for every font × every Unicode range.
+        glyphs_url_template uses {fontstack} and {range} placeholders.
+        """
+        if not fonts:
+            log.info("  No fonts to download.")
+            return
+
+        if not glyphs_url_template or not glyphs_url_template.startswith("http"):
+            log.warning("  Glyphs URL is not a downloadable HTTP URL: %s", glyphs_url_template)
+            log.warning("  Fonts will not be embedded — labels may not render in ArcGIS Pro.")
+            return
+
+        total_ranges = len(GLYPH_RANGES)
+        log.info("  Downloading %d font(s) × %d glyph ranges…", len(fonts), total_ranges)
+
+        for font in fonts:
+            font_dir = os.path.join(fonts_dir, font)
+            os.makedirs(font_dir, exist_ok=True)
+            downloaded = cached = 0
+            for grange in GLYPH_RANGES:
+                url = (glyphs_url_template
+                       .replace("{fontstack}", urllib.request.quote(font))
+                       .replace("{range}", grange))
+                from ..cache import _cache_path, _ext
+                cp = _cache_path("fonts", url, ".pbf")
+                was_cached = os.path.exists(cp)
+                data = cache_fetch(url, category="fonts", binary=True)
+                if data and len(data) > 0:
+                    out_path = os.path.join(font_dir, f"{grange}.pbf")
+                    with open(out_path, "wb") as fh:
+                        fh.write(data)
+                    if was_cached: cached += 1
+                    else:          downloaded += 1
+
+            log.info("    %s: %d from cache, %d downloaded, %d missing.",
+                     font, cached, downloaded, len(GLYPH_RANGES) - cached - downloaded)
+
+    # ------------------------------------------------------------------
+    # Sprite downloading
+    # ------------------------------------------------------------------
+
+    def _download_sprites(self, sprite_url: str, sprites_dir: str) -> None:
+        """
+        Download sprite.json/png + @2x variants from the sprite base URL.
+        sprite_url may be "mapbox://..." or "https://..." or a local path.
+        """
+        if not sprite_url:
+            log.info("  No sprite URL in style.")
+            return
+
+        # Resolve mapbox:// scheme to CDN URL
+        if sprite_url.startswith("mapbox://sprites/"):
+            parts  = sprite_url.replace("mapbox://sprites/", "")
+            sprite_url = f"https://api.mapbox.com/styles/v1/{parts}/sprite"
+            log.info("  Resolved mapbox sprite URL: %s", sprite_url)
+        elif not sprite_url.startswith("http"):
+            log.info("  Sprite URL is not downloadable: %s", sprite_url)
+            return
+
+        os.makedirs(sprites_dir, exist_ok=True)
+        files = [
+            ("sprite.json",     sprite_url + ".json",    False),
+            ("sprite.png",      sprite_url + ".png",     True),
+            ("sprite@2x.json",  sprite_url + "@2x.json", False),
+            ("sprite@2x.png",   sprite_url + "@2x.png",  True),
+        ]
+        for fname, url, binary in files:
+            from ..cache import _cache_path
+            cp = _cache_path("sprites", url, ".png" if fname.endswith(".png") else ".json")
+            was_cached = os.path.exists(cp)
+            data = cache_fetch(url, category="sprites", binary=True)
+            if data:
+                out = os.path.join(sprites_dir, fname)
+                with open(out, "wb") as fh:
+                    fh.write(data)
+                source = "cache" if was_cached else "network"
+                log.info("    %s: %s (%d bytes)", fname, source, len(data))
+            else:
+                log.warning("    Could not fetch: %s", fname)
+
+    # ------------------------------------------------------------------
+    # Style patching
+    # ------------------------------------------------------------------
+
+    def _patch_style(self, style: dict) -> dict:
+        """Rewrite glyphs/sprite/source URLs to VTPK-relative paths."""
+        meta = self._read_metadata()
+        min_zoom = int(meta.get("minzoom", 0))
+        max_zoom = int(meta.get("maxzoom", 18))
+        attribution = meta.get("attribution", "")
+        bounds_wgs84 = None
+        if "bounds" in meta:
+            try:
+                parts = [float(v.strip()) for v in meta["bounds"].split(",")]
+                if len(parts) == 4:
+                    bounds_wgs84 = parts
+            except Exception:
+                pass
+
+        # Patch sources
+        for src in style.get("sources", {}).values():
+            if src.get("type") == "vector":
+                src["url"]    = "../../"
+                src["scheme"] = src.get("scheme", "xyz")
+                src.setdefault("minzoom", min_zoom)
+                src.setdefault("maxzoom", max_zoom)
+                if attribution and "attribution" not in src:
+                    src["attribution"] = attribution
+                if bounds_wgs84 and "bounds" not in src:
+                    src["bounds"] = bounds_wgs84
+
+        # Patch glyphs
+        if style.get("glyphs", "").startswith("http") or style.get("glyphs", "").startswith("mapbox://"):
+            style["glyphs"] = "../fonts/{fontstack}/{range}.pbf"
+            log.info("  Glyphs URL patched to local path.")
+
+        # Patch sprite
+        if style.get("sprite", "").startswith("http") or style.get("sprite", "").startswith("mapbox://"):
+            style["sprite"] = "../sprites/sprite"
+            log.info("  Sprite URL patched to local path.")
+
+        return style
+
+    # ------------------------------------------------------------------
+    # Minimal style builder (no external style)
+    # ------------------------------------------------------------------
+
+    def _read_metadata(self) -> dict:
         con = sqlite3.connect(self.mbtiles_path)
         try:
-            cur = con.execute("SELECT name, value FROM metadata")
-            meta = dict(cur.fetchall())
+            return dict(con.execute("SELECT name, value FROM metadata").fetchall())
         finally:
             con.close()
 
-        # Some tilesets embed a full Mapbox GL style under 'style'
-        if "style" in meta:
-            log.info("  Found embedded 'style' key in metadata.")
-            return json.loads(meta["style"])
+    def _build_minimal_style(self, meta: dict) -> dict:
+        name        = meta.get("name", "unnamed")
+        min_zoom    = int(meta.get("minzoom", 0))
+        max_zoom    = int(meta.get("maxzoom", 18))
+        attribution = meta.get("attribution", "")
 
-        # Others store vector_layers info under 'json' – build a minimal style
+        bounds_wgs84 = None
+        if "bounds" in meta:
+            try:
+                parts = [float(v.strip()) for v in meta["bounds"].split(",")]
+                if len(parts) == 4:
+                    bounds_wgs84 = parts
+            except Exception:
+                pass
+
+        layers_meta = []
         if "json" in meta:
-            log.info("  No full style found; building minimal style from 'json' metadata.")
             layers_meta = json.loads(meta["json"]).get("vector_layers", [])
-            style = dict(DEFAULT_STYLE)
-            style["name"] = meta.get("name", "unnamed")
-            style["layers"] = [
-                {
-                    "id": layer["id"],
-                    "type": "fill",
-                    "source": "esri",
-                    "source-layer": layer["id"],
-                    "paint": {}
-                }
-                for layer in layers_meta
-            ]
-            log.info("  Built minimal style with %d layer(s).", len(style["layers"]))
-            return style
 
-        log.warning("  No style information found; using empty default style.")
-        return DEFAULT_STYLE
+        source = {
+            "type":   "vector",
+            "url":    "../../",
+            "scheme": "xyz",
+            "minzoom": min_zoom,
+            "maxzoom": max_zoom,
+        }
+        if attribution:
+            source["attribution"] = attribution
+        if bounds_wgs84:
+            source["bounds"] = bounds_wgs84
+
+        gl_layers = [self._make_layer(l) for l in layers_meta]
+        log.info("  Built minimal style with %d layer(s).", len(gl_layers))
+
+        return {
+            "version": 8,
+            "name": name,
+            "glyphs":  "../fonts/{fontstack}/{range}.pbf",
+            "sprite":  "../sprites/sprite",
+            "sources": {"esri": source},
+            "layers":  gl_layers,
+        }
+
+    def _make_layer(self, layer_meta: dict) -> dict:
+        layer_id = layer_meta["id"]
+        fields   = layer_meta.get("fields", {})
+        lid      = layer_id.lower()
+
+        POINT_WORDS = ("name", "label", "point", "place", "city", "town", "capital")
+        LINE_WORDS  = ("line", "border", "road", "rail", "river", "coast", "contour")
+
+        if any(w in lid for w in POINT_WORDS):
+            gl_type = "symbol"
+            paint   = {}
+            layout  = {"text-field": ["get", next(iter(fields), "_name")]} if fields else {}
+        elif any(w in lid for w in LINE_WORDS):
+            gl_type = "line"
+            paint   = {"line-color": "#888888", "line-width": 1}
+            layout  = {}
+        else:
+            gl_type = "fill"
+            paint   = {"fill-color": "#cccccc", "fill-opacity": 0.5}
+            layout  = {}
+
+        layer_def = {
+            "id":           layer_id,
+            "type":         gl_type,
+            "source":       "esri",
+            "source-layer": layer_id,
+            "paint":        paint,
+        }
+        if layout:
+            layer_def["layout"] = layout
+        return layer_def
+
+    def _write_style(self, style: dict, styles_dir: str) -> None:
+        out = os.path.join(styles_dir, "root.json")
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump(style, fh, indent=2)
+        log.info("Style written to: %s", out)
