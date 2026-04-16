@@ -19,8 +19,8 @@ pip install -e .
 ## Usage
 
 ```bash
-mbtiles2vtpk input.mbtiles output.vtpk
-mbtiles2vtpk input.mbtiles output.vtpk --work-dir C:\Temp\work
+mbtiles2vtpk ./data/countries.mbtiles countries.vtpk
+mbtiles2vtpk ./data/countries.mbtiles countries.vtpk --work-dir C:\Temp\work
 ```
 
 Or with Python directly (PyCharm / no install):

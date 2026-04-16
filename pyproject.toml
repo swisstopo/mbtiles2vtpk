@@ -9,7 +9,9 @@ description = "Convert MBTiles vector tile packages to the ESRI VTPK format."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-dependencies = []   # stdlib only; external tool is a git submodule
+dependencies = [
+    "joblib",   # required by vendor/python-mbtiles2compactcache
+]
 
 [project.scripts]
 mbtiles2vtpk = "mbtiles2vtpk.cli:main"

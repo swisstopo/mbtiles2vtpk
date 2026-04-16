@@ -125,7 +125,7 @@ class TileExtractor(BaseStep):
 
         # Try _alllayers sub-folder first (EsriDE convention), then bare root
         candidates = [
-            os.path.join(tmp_out, "_alllayers"),
+            os.path.join(tmp_out, "A3_MyCachedService", "Layers", "_alllayers"),
             tmp_out,
         ]
         source_root = None
