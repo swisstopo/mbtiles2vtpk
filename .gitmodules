@@ -1,0 +1,3 @@
+[submodule "mbtiles2vtpk/vendor/python-mbtiles2compactcache"]
+    path = mbtiles2vtpk/vendor/python-mbtiles2compactcache
+    url  = https://github.com/ltbam/python-mbtiles2compactcache.git

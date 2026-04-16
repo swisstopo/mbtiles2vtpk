@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "mbtiles2vtpk"
+version = "0.1.0"
+description = "Convert MBTiles vector tile packages to the ESRI VTPK format."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []   # stdlib only; external tool is a git submodule
+
+[project.scripts]
+mbtiles2vtpk = "mbtiles2vtpk.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+# ---------------------------------------------------------------------------
+# Developer notes – external dependency
+# ---------------------------------------------------------------------------
+# The tile extraction step relies on:
+#   https://github.com/ltbam/python-mbtiles2compactcache
+#
+# It is included as a git submodule (NOT a PyPI dependency because the
+# project is not published on PyPI).
+#
+# After cloning this repo, initialise the submodule with:
+#   git submodule update --init --recursive
+#
+# This will populate:
+#   mbtiles2vtpk/vendor/python-mbtiles2compactcache/code/mbtiles2compactcache.py
