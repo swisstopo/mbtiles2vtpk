@@ -55,12 +55,6 @@ desktop.ini
 work_dir/
 _cc_tmp/
 
-# Output VTPK files (large binaries, not meant for the repo)
-*.vtpk
-
-# Input MBTiles files (large binaries, keep out of repo)
-*.mbtiles
-
 # Temporary extraction folders
 */_alllayers/
 */p12/
