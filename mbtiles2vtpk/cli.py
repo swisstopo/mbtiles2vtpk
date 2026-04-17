@@ -2,17 +2,15 @@
 CLI entry point for mbtiles2vtpk.
 
 Usage:
-    mbtiles2vtpk input.mbtiles output.vtpk
-    mbtiles2vtpk input.mbtiles output.vtpk --style https://...
-    mbtiles2vtpk input.mbtiles output.vtpk --style ./my-style.json --work-dir C:/Temp
+    mbtiles2vtpk -i input.mbtiles -o output.vtpk
+    mbtiles2vtpk -i input.mbtiles -o output.vtpk --style https://...
+    mbtiles2vtpk -i input.mbtiles -o output.vtpk --style ./my-style.json
     mbtiles2vtpk --cache-info
     mbtiles2vtpk --clear-cache
 """
 
 import argparse
 import sys
-
-from .converter import MBTiles2VTPKConverter
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -23,15 +21,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     # --- Conversion arguments ---
     parser.add_argument(
-        "input",
+        "-i", "--input",
         metavar="INPUT",
-        nargs="?",
         help="Path to the source .mbtiles file.",
     )
     parser.add_argument(
-        "output",
+        "-o", "--output",
         metavar="OUTPUT",
-        nargs="?",
         help="Path for the output .vtpk file.",
     )
     parser.add_argument(
@@ -48,8 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Mapbox GL style to embed — URL or local path. "
             "Referenced fonts and sprites are downloaded automatically "
             "and cached in ~/.mbtiles2vtpk/cache/. "
-            "Example: https://raw.githubusercontent.com/mapbox/mapbox-gl-styles"
-            "/master/styles/basic-v8.json"
+            "For styles on api.maptiler.com set MAPTILER_KEY and "
+            "MAPTILER_ORIGIN environment variables."
         ),
     )
 
@@ -72,10 +68,9 @@ def main(argv=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    # --- Cache management commands ---
+    # --- Cache management commands (no conversion needed) ---
     if args.cache_info or args.clear_cache:
         from .cache import cache_size, clear, _CACHE_ROOT
-        import os
         if args.clear_cache:
             n = clear()
             print(f"Cache cleared: {n} file(s) deleted from {_CACHE_ROOT}")
@@ -85,18 +80,31 @@ def main(argv=None) -> int:
             print(f"Cache size     : {size_mb:.1f} MB")
         return 0
 
-    # --- Conversion ---
+    # --- Validate required conversion arguments ---
     if not args.input or not args.output:
         parser.print_help()
+        print("\nerror: -i/--input and -o/--output are required for conversion.", file=sys.stderr)
         return 1
 
-    converter = MBTiles2VTPKConverter(
-        mbtiles_path=args.input,
-        output_path=args.output,
-        work_dir=args.work_dir,
-        style_source=args.style,
-    )
-    converter.convert()
+    # --- Run conversion ---
+    from .converter import MBTiles2VTPKConverter
+    from .cache import FetchError
+
+    try:
+        converter = MBTiles2VTPKConverter(
+            mbtiles_path=args.input,
+            output_path=args.output,
+            work_dir=args.work_dir,
+            style_source=args.style,
+        )
+        converter.convert()
+    except FetchError as e:
+        print(f"\n[ERROR] Download failed — conversion aborted.\n{e}", file=sys.stderr)
+        return 1
+    except FileNotFoundError as e:
+        print(f"\n[ERROR] File not found — conversion aborted.\n{e}", file=sys.stderr)
+        return 1
+
     return 0
 
 

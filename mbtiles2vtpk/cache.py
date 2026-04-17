@@ -79,14 +79,20 @@ def _ext(url: str) -> str:
     return ".bin"
 
 
-def fetch(url: str, category: str = "misc", binary: bool = True) -> Optional[bytes]:
+class FetchError(RuntimeError):
+    """Raised when a required remote resource cannot be downloaded."""
+
+
+def fetch(url: str, category: str = "misc", binary: bool = True) -> bytes:
     """
     Return the content of *url* as bytes.
 
     1. Check disk cache  → return immediately if hit.
     2. Inject MapTiler credentials if url targets api.maptiler.com.
     3. Download from network → store in cache → return.
-    4. Return None on failure.
+
+    Raises FetchError if the download fails so the pipeline stops immediately
+    rather than silently producing an incomplete VTPK.
     """
     ext  = _ext(url)
     path = _cache_path(category, url, ext)
@@ -99,13 +105,19 @@ def fetch(url: str, category: str = "misc", binary: bool = True) -> Optional[byt
     fetch_url, headers = _inject_maptiler(url)
 
     # --- Network fetch ---
+    log.debug("    Downloading %s", url)
     try:
         req  = urllib.request.Request(fetch_url, headers=headers)
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
     except Exception as e:
-        log.debug("    Network fetch failed for %s: %s", url, e)
-        return None
+        raise FetchError(
+            f"Failed to download resource:\n"
+            f"  URL      : {url}\n"
+            f"  Reason   : {e}\n"
+            f"  Tip      : check network access and, for api.maptiler.com,\n"
+            f"             set MAPTILER_KEY and MAPTILER_ORIGIN env variables."
+        ) from e
 
     # --- Store in cache ---
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -113,6 +125,15 @@ def fetch(url: str, category: str = "misc", binary: bool = True) -> Optional[byt
         fh.write(data)
 
     return data
+
+
+def fetch_optional(url: str, category: str = "misc") -> Optional[bytes]:
+    """Like fetch() but returns None instead of raising on failure."""
+    try:
+        return fetch(url, category)
+    except FetchError as e:
+        log.warning("%s", e)
+        return None
 
 
 def clear(category: str = None) -> int:

@@ -22,7 +22,7 @@ from typing import List, Optional
 
 from .base_step import BaseStep
 from ..logger import get_logger
-from ..cache import fetch as cache_fetch
+from ..cache import fetch as cache_fetch, fetch_optional, FetchError
 
 log = get_logger("StyleCopier")
 
@@ -99,11 +99,13 @@ class StyleCopier(BaseStep):
         if src.startswith("http://") or src.startswith("https://"):
             log.info("  Fetching style from URL (cache then network)…")
             data = cache_fetch(src, category="styles")
-            raw  = data.decode("utf-8") if data else None
+            raw  = data.decode("utf-8")
         else:
             log.info("  Reading style from local file…")
             data = _read_file(src)
-            raw  = data.decode("utf-8") if data else None
+            if data is None:
+                raise FileNotFoundError(f"Style file not found: {src}")
+            raw  = data.decode("utf-8")
 
         if raw is None:
             return None
@@ -164,16 +166,15 @@ class StyleCopier(BaseStep):
                 from ..cache import _cache_path, _ext
                 cp = _cache_path("fonts", url, ".pbf")
                 was_cached = os.path.exists(cp)
-                data = cache_fetch(url, category="fonts", binary=True)
-                if data and len(data) > 0:
+                data = cache_fetch(url, category="fonts")
+                if len(data) > 0:
                     out_path = os.path.join(font_dir, f"{grange}.pbf")
                     with open(out_path, "wb") as fh:
                         fh.write(data)
                     if was_cached: cached += 1
                     else:          downloaded += 1
 
-            log.info("    %s: %d from cache, %d downloaded, %d missing.",
-                     font, cached, downloaded, len(GLYPH_RANGES) - cached - downloaded)
+            log.info("    %s: %d from cache, %d downloaded.", font, cached, downloaded)
 
     # ------------------------------------------------------------------
     # Sprite downloading
@@ -198,25 +199,29 @@ class StyleCopier(BaseStep):
             return
 
         os.makedirs(sprites_dir, exist_ok=True)
+        # (filename, url, optional)
         files = [
-            ("sprite.json",     sprite_url + ".json",    False),
-            ("sprite.png",      sprite_url + ".png",     True),
-            ("sprite@2x.json",  sprite_url + "@2x.json", False),
-            ("sprite@2x.png",   sprite_url + "@2x.png",  True),
+            ("sprite.json",     sprite_url + ".json",    False),  # required
+            ("sprite.png",      sprite_url + ".png",     False),  # required
+            ("sprite@2x.json",  sprite_url + "@2x.json", True),   # optional
+            ("sprite@2x.png",   sprite_url + "@2x.png",  True),   # optional
         ]
-        for fname, url, binary in files:
-            from ..cache import _cache_path
+        from ..cache import _cache_path
+        for fname, url, optional in files:
             cp = _cache_path("sprites", url, ".png" if fname.endswith(".png") else ".json")
             was_cached = os.path.exists(cp)
-            data = cache_fetch(url, category="sprites", binary=True)
+            fetcher = fetch_optional if optional else cache_fetch
+            data = fetcher(url, category="sprites")
             if data:
                 out = os.path.join(sprites_dir, fname)
                 with open(out, "wb") as fh:
                     fh.write(data)
                 source = "cache" if was_cached else "network"
                 log.info("    %s: %s (%d bytes)", fname, source, len(data))
+            elif not optional:
+                raise FetchError(f"Required sprite file could not be downloaded: {url}")
             else:
-                log.warning("    Could not fetch: %s", fname)
+                log.info("    %s: not available (optional)", fname)
 
     # ------------------------------------------------------------------
     # Style patching
