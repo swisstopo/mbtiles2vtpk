@@ -9,7 +9,7 @@ Tested with ArcGIS Pro and QGIS.
 
 ```bash
 # 1. Clone with submodules
-git clone --recurse-submodules https://github.com/<you>/mbtiles2vtpk.git
+git clone --recurse-submodules https://github.com/swisstopo/mbtiles2vtpk.git
 cd mbtiles2vtpk
 
 # If you already cloned without --recurse-submodules:
