@@ -45,11 +45,15 @@ def _inject_maptiler(url: str) -> tuple[str, dict]:
     Returns (patched_url, headers_dict).
     """
     headers = {}
+
+    headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
+
     if "api.maptiler.com" not in url:
         return url, headers
 
     if _MAPTILER_KEY:
         sep = "&" if "?" in url else "?"
+        url = url.replace("?key={key}","")
         url = f"{url}{sep}key={urllib.parse.quote(_MAPTILER_KEY)}"
     else:
         log.warning("MAPTILER_KEY not set — requests to api.maptiler.com may fail.")
@@ -58,6 +62,8 @@ def _inject_maptiler(url: str) -> tuple[str, dict]:
         headers["Origin"] = _MAPTILER_ORIGIN
     else:
         log.warning("MAPTILER_ORIGIN not set — requests to api.maptiler.com may be blocked.")
+
+
 
     return url, headers
 

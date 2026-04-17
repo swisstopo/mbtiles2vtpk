@@ -1,0 +1,86 @@
+{
+  "version": 8,
+  "name": "Dark Minimal",
+  "sources": {
+    "osm": {
+      "type": "vector",
+      "url": "https://demotiles.maplibre.org/tiles/tiles.json"
+    }
+  },
+  "sprite": "",
+  "glyphs": "https://fonts.openmaptiles.org/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "#0b0e11"
+      }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "osm",
+      "source-layer": "water",
+      "paint": {
+        "fill-color": "#0f1a24"
+      }
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "osm",
+      "source-layer": "landuse",
+      "paint": {
+        "fill-color": "#111418"
+      }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "osm",
+      "source-layer": "transportation",
+      "paint": {
+        "line-color": "#2d3748",
+        "line-width": 1
+      }
+    },
+    {
+      "id": "roads-major",
+      "type": "line",
+      "source": "osm",
+      "source-layer": "transportation",
+      "filter": ["==", "class", "primary"],
+      "paint": {
+        "line-color": "#4a5568",
+        "line-width": 1.5
+      }
+    },
+    {
+      "id": "buildings",
+      "type": "fill",
+      "source": "osm",
+      "source-layer": "building",
+      "paint": {
+        "fill-color": "#1a202c",
+        "fill-outline-color": "#2d3748"
+      }
+    },
+    {
+      "id": "labels",
+      "type": "symbol",
+      "source": "osm",
+      "source-layer": "place",
+      "layout": {
+        "text-field": "{name}",
+        "text-size": 12,
+        "text-font": ["Open Sans Regular"]
+      },
+      "paint": {
+        "text-color": "#e2e8f0",
+        "text-halo-color": "#1a202c",
+        "text-halo-width": 1
+      }
+    }
+  ]
+}

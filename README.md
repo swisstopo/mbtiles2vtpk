@@ -48,7 +48,7 @@ mbtiles2vtpk -i input.mbtiles -o output.vtpk \
   --style https://raw.githubusercontent.com/mapbox/mapbox-gl-styles/master/styles/basic-v8.json
 
 # From a local file
-mbtiles2vtpk -i input.mbtiles -o output.vtpk --style ./my-style.json
+mbtiles2vtpk -i input.mbtiles -o output.vtpk --style ./style/dark_minimal.json
 
 # With a custom working directory
 mbtiles2vtpk -i input.mbtiles -o output.vtpk --style ./my-style.json --work-dir C:\Temp\work
