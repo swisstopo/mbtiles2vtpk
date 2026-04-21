@@ -125,8 +125,6 @@ class StyleCopier(BaseStep):
       - Downloads/reads the Mapbox GL style
       - Downloads all referenced fonts and sprites
       - Patches URLs for VTPK local layout
-      - Optionally sanitizes the style for ArcGIS Pro compatibility
-
     Without --style:
       - Builds a minimal style from MBTiles vector_layers metadata
     """
