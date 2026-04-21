@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--sanitize-for-pro",
+        "--pro-safe-mode",
         action="store_true",
         default=False,
         help=(
@@ -96,7 +96,7 @@ def main(argv=None) -> int:
         return 0
 
     # --- Validate flags ---
-    if args.sanitize_for_pro and not args.style:
+    if args.pro_safe_mode and not args.style:
         parser.error("--sanitize-for-pro requires --style to be set.")
 
     # --- Validate required conversion arguments ---
@@ -115,7 +115,7 @@ def main(argv=None) -> int:
             output_path=args.output,
             work_dir=args.work_dir,
             style_source=args.style,
-            sanitize_for_pro=args.sanitize_for_pro,
+            pro_safe_mode=args.pro_safe_mode,
         )
         converter.convert()
     except FetchError as e:

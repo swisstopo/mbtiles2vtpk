@@ -137,19 +137,19 @@ class StyleCopier(BaseStep):
         mbtiles_path: str,
         work_dir: str,
         style_source: Optional[str] = None,
-        sanitize_for_pro: bool = False,
+        pro_safe_mode: bool = False,
     ):
         """
         :param mbtiles_path:    Path to source .mbtiles file.
         :param work_dir:        Working directory (VTPK structure root).
         :param style_source:    Optional URL or local path to a Mapbox GL style JSON.
-        :param sanitize_for_pro: When True, apply ArcGIS Pro compatibility fixes
-                                 to the style before writing it.
+        :param pro_safe_mode: When True, apply ArcGIS Pro safe mode fixes
+                              to the style before writing it.
         """
         self.mbtiles_path = mbtiles_path
         self.work_dir = work_dir
         self.style_source = style_source
-        self.sanitize_for_pro = sanitize_for_pro
+        self.pro_safe_mode = pro_safe_mode
 
     # ------------------------------------------------------------------
 
@@ -169,7 +169,7 @@ class StyleCopier(BaseStep):
                 style  = self._patch_style(style)
                 if self.sanitize_for_pro:
                     log.info("  Applying ArcGIS Pro compatibility fixes…")
-                    from .style_sanitizer import sanitize_for_arcgis_pro
+                    from .style_sanitizer import StyleSanitizer
                     style = sanitize_for_arcgis_pro(style)
                 self._write_style(style, styles_dir)
                 return
