@@ -132,24 +132,16 @@ class StyleCopier(BaseStep):
       - Builds a minimal style from MBTiles vector_layers metadata
     """
 
-    def __init__(
-        self,
-        mbtiles_path: str,
-        work_dir: str,
-        style_source: Optional[str] = None,
-        pro_safe_mode: bool = False,
-    ):
+    def __init__(self, mbtiles_path: str, work_dir: str,
+                 style_source: Optional[str] = None):
         """
         :param mbtiles_path:    Path to source .mbtiles file.
         :param work_dir:        Working directory (VTPK structure root).
         :param style_source:    Optional URL or local path to a Mapbox GL style JSON.
-        :param pro_safe_mode: When True, apply ArcGIS Pro safe mode fixes
-                              to the style before writing it.
         """
         self.mbtiles_path = mbtiles_path
         self.work_dir = work_dir
         self.style_source = style_source
-        self.pro_safe_mode = pro_safe_mode
 
     # ------------------------------------------------------------------
 
@@ -167,10 +159,6 @@ class StyleCopier(BaseStep):
                 self._download_fonts(fonts, style.get("glyphs", ""), fonts_dir)
                 self._download_sprites(sprite, sprites_dir)
                 style  = self._patch_style(style)
-                if self.sanitize_for_pro:
-                    log.info("  Applying ArcGIS Pro compatibility fixes…")
-                    from .style_sanitizer import StyleSanitizer
-                    style = sanitize_for_arcgis_pro(style)
                 self._write_style(style, styles_dir)
                 return
 
