@@ -104,6 +104,9 @@ def main(argv=None) -> int:
     except FileNotFoundError as e:
         print(f"\n[ERROR] File not found — conversion aborted.\n{e}", file=sys.stderr)
         return 1
+    except ValueError as e:
+        print(f"\n[ERROR] {e}", file=sys.stderr)
+        return 1
 
     return 0
 

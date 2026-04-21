@@ -14,15 +14,40 @@ cd mbtiles2vtpk
 
 # If you already cloned without --recurse-submodules:
 git submodule update --init --recursive
-
-# 2. Install (editable mode)
-pip install -e .
 ```
 
-Requires **joblib** (dependency of the bundled submodule):
+```bash
+# 2. Create a virtual environment
+python -m venv .venv
+```
+
+**Windows**
+```powershell
+.venv\Scripts\activate
+```
+
+**Linux / macOS**
+```bash
+source .venv/bin/activate
+```
 
 ```bash
+# 3. Install the package and its dependencies
+pip install -e .
 pip install joblib
+```
+
+After activation, the `mbtiles2vtpk` command is available in the terminal.  
+Alternatively, use the venv Python directly without activating:
+
+**Windows**
+```powershell
+.venv\Scripts\python.exe mbtiles2vtpk -i input.mbtiles -o output.vtpk
+```
+
+**Linux / macOS**
+```bash
+.venv/bin/python mbtiles2vtpk -i input.mbtiles -o output.vtpk
 ```
 
 ---

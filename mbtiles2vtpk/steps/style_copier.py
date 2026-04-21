@@ -7,7 +7,8 @@ If a --style URL or path is provided:
   3. Download font PBF glyphs (256 ranges × N fonts)
   4. Download sprite files (sprite.json/png + @2x variants)
   5. Patch glyphs/sprite/source URLs for VTPK layout
-  6. Write everything to p12/resources/
+  6. Optionally sanitize the style for ArcGIS Pro compatibility
+  7. Write everything to p12/resources/
 
 If no style is provided:
   Build a minimal style from MBTiles metadata (existing behaviour).
@@ -125,6 +126,8 @@ class StyleCopier(BaseStep):
       - Downloads/reads the Mapbox GL style
       - Downloads all referenced fonts and sprites
       - Patches URLs for VTPK local layout
+      - Optionally sanitizes the style for ArcGIS Pro compatibility
+
     Without --style:
       - Builds a minimal style from MBTiles vector_layers metadata
     """
@@ -150,16 +153,13 @@ class StyleCopier(BaseStep):
         if self.style_source:
             log.info("External style provided: %s", self.style_source)
             style = self._load_external_style()
-            if style:
-                fonts  = self._extract_fonts(style)
-                sprite = style.get("sprite", "")
-                self._download_fonts(fonts, style.get("glyphs", ""), fonts_dir)
-                self._download_sprites(sprite, sprites_dir)
-                style  = self._patch_style(style)
-                self._write_style(style, styles_dir)
-                return
-
-            log.warning("Could not load external style — falling back to minimal style.")
+            fonts  = self._extract_fonts(style)
+            sprite = style.get("sprite", "")
+            self._download_fonts(fonts, style.get("glyphs", ""), fonts_dir)
+            self._download_sprites(sprite, sprites_dir)
+            style  = self._patch_style(style)
+            self._write_style(style, styles_dir)
+            return
 
         # Fallback: build minimal style from MBTiles metadata
         log.info("Building minimal style from MBTiles metadata.")
@@ -171,7 +171,7 @@ class StyleCopier(BaseStep):
     # External style loading
     # ------------------------------------------------------------------
 
-    def _load_external_style(self) -> Optional[dict]:
+    def _load_external_style(self) -> dict:
         src = self.style_source
         if src.startswith("http://") or src.startswith("https://"):
             log.info("  Fetching style from URL (cache then network)…")
@@ -184,13 +184,14 @@ class StyleCopier(BaseStep):
                 raise FileNotFoundError(f"Style file not found: {src}")
             raw  = data.decode("utf-8")
 
-        if raw is None:
-            return None
         try:
             return json.loads(raw)
         except json.JSONDecodeError as e:
-            log.error("  Style JSON parse error: %s", e)
-            return None
+            raise ValueError(
+                f"Style is not valid JSON — conversion aborted.\n"
+                f"  Source : {src}\n"
+                f"  Reason : {e}"
+            ) from e
 
     # ------------------------------------------------------------------
     # Font downloading
