@@ -4,6 +4,7 @@ CLI entry point for mbtiles2vtpk.
 Usage:
     mbtiles2vtpk -i input.mbtiles -o output.vtpk
     mbtiles2vtpk -i input.mbtiles -o output.vtpk --style https://...
+    mbtiles2vtpk -i input.mbtiles -o output.vtpk --style https://... --sanitize-for-pro
     mbtiles2vtpk -i input.mbtiles -o output.vtpk --style ./my-style.json
     mbtiles2vtpk --cache-info
     mbtiles2vtpk --clear-cache
@@ -48,6 +49,20 @@ def build_parser() -> argparse.ArgumentParser:
             "MAPTILER_ORIGIN environment variables."
         ),
     )
+    parser.add_argument(
+        "--sanitize-for-pro",
+        action="store_true",
+        default=False,
+        help=(
+            "Apply ArcGIS Pro compatibility fixes to the style before embedding it. "
+            "Removes or converts unsupported Mapbox GL properties and expressions "
+            "so that Pro can render the style without warnings. "
+            "Fixes: fill-pattern expressions, symbol-z-order, text-radial-offset, "
+            "text-variable-anchor, symbol-placement line-center, "
+            "text-field array expressions, symbol-sort-key. "
+            "Requires --style."
+        ),
+    )
 
     # --- Cache management ---
     parser.add_argument(
@@ -80,6 +95,10 @@ def main(argv=None) -> int:
             print(f"Cache size     : {size_mb:.1f} MB")
         return 0
 
+    # --- Validate flags ---
+    if args.sanitize_for_pro and not args.style:
+        parser.error("--sanitize-for-pro requires --style to be set.")
+
     # --- Validate required conversion arguments ---
     if not args.input or not args.output:
         parser.print_help()
@@ -96,6 +115,7 @@ def main(argv=None) -> int:
             output_path=args.output,
             work_dir=args.work_dir,
             style_source=args.style,
+            sanitize_for_pro=args.sanitize_for_pro,
         )
         converter.convert()
     except FetchError as e:

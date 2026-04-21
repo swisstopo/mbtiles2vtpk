@@ -25,18 +25,29 @@ class MBTiles2VTPKConverter:
     Orchestrates the full conversion pipeline from an MBTiles file to a VTPK package.
     """
 
-    def __init__(self, mbtiles_path: str, output_path: str, work_dir: str = None, style_source: str = None):
+    def __init__(
+        self,
+        mbtiles_path: str,
+        output_path: str,
+        work_dir: str = None,
+        style_source: str = None,
+        sanitize_for_pro: bool = False,
+    ):
         """
-        :param mbtiles_path: Path to the source .mbtiles file.
-        :param output_path:  Path where the output .vtpk file will be written.
-        :param style_source: Optional URL or path to a Mapbox GL style JSON.
-        :param work_dir:     Optional working directory for intermediate files.
-                             A temp directory is created (and cleaned up) if None.
+        :param mbtiles_path:     Path to the source .mbtiles file.
+        :param output_path:      Path where the output .vtpk file will be written.
+        :param style_source:     Optional URL or path to a Mapbox GL style JSON.
+        :param work_dir:         Optional working directory for intermediate files.
+                                 A temp directory is created (and cleaned up) if None.
+        :param sanitize_for_pro: When True, apply ArcGIS Pro compatibility fixes to
+                                 the style (unsupported properties/expressions are
+                                 removed or converted to supported equivalents).
         """
         self.mbtiles_path = mbtiles_path
         self.output_path = output_path
         self._provided_work_dir = work_dir
         self.style_source = style_source
+        self.sanitize_for_pro = sanitize_for_pro
         self.work_dir = None          # resolved in convert()
 
     # ------------------------------------------------------------------
@@ -85,7 +96,12 @@ class MBTiles2VTPKConverter:
         TilemapEditor(self.work_dir).run()
 
     def _copy_styles(self) -> None:
-        StyleCopier(self.mbtiles_path, self.work_dir, self.style_source).run()
+        StyleCopier(
+            self.mbtiles_path,
+            self.work_dir,
+            self.style_source,
+            sanitize_for_pro=self.sanitize_for_pro,
+        ).run()
 
     def _create_root_json(self) -> None:
         RootJsonCreator(self.mbtiles_path, self.work_dir).run()
