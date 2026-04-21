@@ -7,8 +7,7 @@ If a --style URL or path is provided:
   3. Download font PBF glyphs (256 ranges × N fonts)
   4. Download sprite files (sprite.json/png + @2x variants)
   5. Patch glyphs/sprite/source URLs for VTPK layout
-  6. Optionally sanitize the style for ArcGIS Pro compatibility
-  7. Write everything to p12/resources/
+  6. Write everything to p12/resources/
 
 If no style is provided:
   Build a minimal style from MBTiles metadata (existing behaviour).
