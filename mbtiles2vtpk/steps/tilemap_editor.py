@@ -189,7 +189,7 @@ class TilemapEditor(BaseStep):
         for z in zoom_levels:
             ps = _build_presence_set(tile_dir, z)
             presence_by_zoom[z] = ps
-            log.info("  z%d: %d tiles present", z, len(ps))
+            log.info("  z%d: %d tile(s) present", z, len(ps))
 
         log.info("Building quadtree…")
         tree = _build_full_tree(min_zoom, max_zoom, presence_by_zoom)

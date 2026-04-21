@@ -25,7 +25,8 @@ class MBTiles2VTPKConverter:
     Orchestrates the full conversion pipeline from an MBTiles file to a VTPK package.
     """
 
-    def __init__(self, mbtiles_path: str, output_path: str, work_dir: str = None, style_source: str = None):
+    def __init__(self, mbtiles_path: str, output_path: str,
+                 work_dir: str = None, style_source: str = None):
         """
         :param mbtiles_path: Path to the source .mbtiles file.
         :param output_path:  Path where the output .vtpk file will be written.
@@ -38,8 +39,6 @@ class MBTiles2VTPKConverter:
         self._provided_work_dir = work_dir
         self.style_source = style_source
         self.work_dir = None          # resolved in convert()
-
-    # ------------------------------------------------------------------
 
     def convert(self) -> None:
         """Run all conversion steps in order."""
@@ -72,8 +71,6 @@ class MBTiles2VTPKConverter:
             if _cleanup and os.path.isdir(self.work_dir):
                 shutil.rmtree(self.work_dir)
                 log.info("Temp work dir removed.")
-
-    # ------------------------------------------------------------------
 
     def _create_structure(self) -> None:
         StructureCreator(self.work_dir).run()

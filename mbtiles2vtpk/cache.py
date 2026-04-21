@@ -116,6 +116,7 @@ def fetch(url: str, category: str = "misc", binary: bool = True) -> bytes:
         req  = urllib.request.Request(fetch_url, headers=headers)
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = resp.read()
+            content_encoding = resp.headers.get("Content-Encoding", "")
     except Exception as e:
         raise FetchError(
             f"Failed to download resource:\n"
@@ -124,6 +125,18 @@ def fetch(url: str, category: str = "misc", binary: bool = True) -> bytes:
             f"  Tip      : check network access and, for api.maptiler.com,\n"
             f"             set MAPTILER_KEY and MAPTILER_ORIGIN env variables."
         ) from e
+
+    # --- Decompress if server sent gzip-encoded body ---
+    # urllib with custom headers disables transparent decompression, so we
+    # must handle it explicitly. Also decompress any data already gzip-encoded
+    # at rest (some tile servers always gzip regardless of Accept-Encoding).
+    if content_encoding == "gzip" or (data[:2] == b"\x1f\x8b"):
+        import gzip as _gzip
+        try:
+            data = _gzip.decompress(data)
+            log.debug("    Decompressed gzip response (%d bytes)", len(data))
+        except Exception:
+            pass  # not actually gzip, use as-is
 
     # --- Store in cache ---
     os.makedirs(os.path.dirname(path), exist_ok=True)

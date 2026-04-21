@@ -40,6 +40,83 @@ def _read_file(path: str) -> bytes:
         return None
 
 
+def _collect_font_names(expr, fonts: set) -> None:
+    """
+    Recursively collect font name strings from a text-font expression.
+
+    Font names only appear as elements of a list-of-strings leaf, e.g.:
+      ["Noto Sans Regular", "Noto Sans Italic"]
+
+    They never appear as bare strings at the top level of a step/match/case
+    expression — those positions hold input values like "lake_elevation".
+
+    Strategy:
+    - If expr is a plain list whose items are all strings → it IS a font array.
+    - If expr is a GL expression (first element is an operator string) →
+      recurse only into the output-value positions (skip operator and inputs).
+    - ["literal", [...]] → unwrap and recurse into the inner list.
+    """
+    if not isinstance(expr, list) or not expr:
+        return
+
+    # Plain list of strings → font array
+    if all(isinstance(item, str) for item in expr):
+        fonts.update(expr)
+        return
+
+    op = expr[0] if isinstance(expr[0], str) else None
+
+    if op == "literal" and len(expr) == 2:
+        _collect_font_names(expr[1], fonts)
+        return
+
+    if op in ("step", "interpolate"):
+        # ["step", input, default_output, threshold, output, ...]
+        # ["interpolate", interp, input, stop, output, ...]
+        # Outputs are at odd positions after the first 2-3 items; just recurse
+        # into anything that is a list (skip strings which are inputs/operators).
+        for item in expr[1:]:
+            if isinstance(item, list):
+                _collect_font_names(item, fonts)
+        return
+
+    if op == "match":
+        # ["match", input, label, output, label, output, ..., default]
+        # Labels (positions 2, 4, 6, …) can be strings or arrays of strings
+        # (input values) — NOT font names.  Outputs (positions 3, 5, 7, …)
+        # and the final default ARE font arrays.
+        # Skip position 1 (input expr) and even-indexed labels.
+        if len(expr) < 4:
+            return
+        # Outputs start at index 3, then every 2 steps; default is last item.
+        i = 3
+        while i < len(expr):
+            _collect_font_names(expr[i], fonts)
+            i += 2
+        # If even number of remaining items the last is the default — already covered.
+        return
+
+    if op == "case":
+        # ["case", cond, output, cond, output, ..., default]
+        # Outputs at positions 2, 4, … and final default.
+        i = 2
+        while i < len(expr):
+            _collect_font_names(expr[i], fonts)
+            i += 2
+        return
+
+    if op == "coalesce":
+        for item in expr[1:]:
+            _collect_font_names(item, fonts)
+        return
+
+    # Any other expression: recurse into list children only
+    for item in expr[1:]:
+        if isinstance(item, list):
+            _collect_font_names(item, fonts)
+
+
+
 class StyleCopier(BaseStep):
     """
     Handles style resources for the VTPK.
@@ -48,16 +125,16 @@ class StyleCopier(BaseStep):
       - Downloads/reads the Mapbox GL style
       - Downloads all referenced fonts and sprites
       - Patches URLs for VTPK local layout
-
     Without --style:
       - Builds a minimal style from MBTiles vector_layers metadata
     """
 
-    def __init__(self, mbtiles_path: str, work_dir: str, style_source: Optional[str] = None):
+    def __init__(self, mbtiles_path: str, work_dir: str,
+                 style_source: Optional[str] = None):
         """
-        :param mbtiles_path:  Path to source .mbtiles file.
-        :param work_dir:      Working directory (VTPK structure root).
-        :param style_source:  Optional URL or local path to a Mapbox GL style JSON.
+        :param mbtiles_path:    Path to source .mbtiles file.
+        :param work_dir:        Working directory (VTPK structure root).
+        :param style_source:    Optional URL or local path to a Mapbox GL style JSON.
         """
         self.mbtiles_path = mbtiles_path
         self.work_dir = work_dir
@@ -120,18 +197,24 @@ class StyleCopier(BaseStep):
     # ------------------------------------------------------------------
 
     def _extract_fonts(self, style: dict) -> List[str]:
-        """Return unique font names referenced in style layers."""
+        """Return unique font names referenced in style layers.
+
+        text-font can be:
+          - ["Font Name 1", "Font Name 2"]            direct literal list
+          - ["literal", ["Font Name 1", "Font Name 2"]]
+          - ["step", ...] / ["match", ...] / ["case", ...]
+            where the OUTPUT values are font arrays (list-of-strings)
+
+        We only collect strings from font-array positions (list-of-strings
+        leaves), never from match-input or condition strings such as class
+        values like "lake_elevation".
+        """
         fonts = set()
         for layer in style.get("layers", []):
             layout = layer.get("layout", {})
             tf = layout.get("text-font")
-            if isinstance(tf, list):
-                # Either ["FontName"] or ["get","text-font"] expression
-                for item in tf:
-                    if isinstance(item, str) and item not in ("get", "step", "match"):
-                        fonts.add(item)
-            elif isinstance(tf, str):
-                fonts.add(tf)
+            if tf is not None:
+                _collect_font_names(tf, fonts)
         if fonts:
             log.info("  Fonts referenced in style: %s", sorted(fonts))
         else:
@@ -331,7 +414,7 @@ class StyleCopier(BaseStep):
         if any(w in lid for w in POINT_WORDS):
             gl_type = "symbol"
             paint   = {}
-            layout  = {"text-field": ["get", next(iter(fields), "_name")]} if fields else {}
+            layout  = {"text-field": "{" + next(iter(fields), "_name") + "}"} if fields else {}
         elif any(w in lid for w in LINE_WORDS):
             gl_type = "line"
             paint   = {"line-color": "#888888", "line-width": 1}
