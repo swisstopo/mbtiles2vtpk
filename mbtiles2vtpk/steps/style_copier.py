@@ -399,7 +399,8 @@ class StyleCopier(BaseStep):
             "version": 8,
             "name": name,
             "glyphs":  "../fonts/{fontstack}/{range}.pbf",
-            "sprite":  "../sprites/sprite",
+            #ArcGIS Server complains if the sprite def exists, but no sprite is provided.
+            #"sprite":  "../sprites/sprite",
             "sources": {"esri": source},
             "layers":  gl_layers,
         }

@@ -50,7 +50,6 @@ class TileExtractor(BaseStep):
 
     def run(self) -> None:
         self._check_script()
-        self._ensure_rowid()
 
         max_zoom = self._read_max_zoom()
         log.info("Source MBTiles max zoom: %d", max_zoom)
@@ -71,118 +70,6 @@ class TileExtractor(BaseStep):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-
-    def _ensure_rowid(self) -> None:
-        """
-        Ensure the 'tiles' view/table exposes a 'rowid' column as expected
-        by mbtiles2compactcache.py for sequential access:
-
-            SELECT * FROM tiles WHERE rowid > {start} LIMIT {n}
-
-        Strategy (non-destructive — never modifies the original data):
-
-        Case 1 – tiles is a VIEW with rowid already    → nothing to do
-        Case 2 – tiles is a VIEW without rowid         → try to rebuild the
-                 view using map.rowid (standard split schema). If map table
-                 doesn't exist, fall through to Case 3.
-        Case 3 – tiles is a TABLE, or view rebuild not possible
-                 → copy tiles into a new table '_tiles_with_rowid' that has
-                   an explicit INTEGER PRIMARY KEY (= real SQLite rowid),
-                   then DROP the original view/table and recreate 'tiles'
-                   as a view over '_tiles_with_rowid'.
-                   The copy is ordered by (zoom_level, tile_column, tile_row)
-                   so rowid is a stable sequential key identical to what
-                   OFFSET/LIMIT would produce.
-        """
-        con = sqlite3.connect(self.mbtiles_path)
-        try:
-            # --- Case 1: rowid already exposed? ---
-            cur = con.execute("PRAGMA table_info(tiles)")
-            columns = [row[1] for row in cur.fetchall()]
-            if "rowid" in columns:
-                log.info("'tiles' already exposes rowid — no patch needed.")
-                return
-
-            cur = con.execute(
-                "SELECT type FROM sqlite_master WHERE name='tiles'"
-            )
-            row = cur.fetchone()
-            if row is None:
-                raise RuntimeError("No 'tiles' table or view found in MBTiles.")
-            obj_type = row[0]
-
-            log.warning("'tiles' %s has no rowid column — patching…", obj_type)
-
-            # --- Case 2: standard split schema (map + images) ---
-            if obj_type == "view":
-                cur = con.execute(
-                    "SELECT name FROM sqlite_master WHERE name='map' AND type='table'"
-                )
-                if cur.fetchone():
-                    log.info("  Standard split schema detected — rebuilding view with map.rowid.")
-                    con.execute("DROP VIEW tiles")
-                    con.execute("""
-                        CREATE VIEW tiles AS
-                            SELECT map.rowid      AS rowid,
-                                   map.zoom_level,
-                                   map.tile_column,
-                                   map.tile_row,
-                                   images.tile_data
-                            FROM map
-                            JOIN images ON images.tile_id = map.tile_id
-                    """)
-                    con.commit()
-                    log.info("  'tiles' view rebuilt with rowid. Done.")
-                    return
-
-            # --- Case 3: flat table or non-standard view ---
-            # Count rows so we can log progress
-            total = con.execute("SELECT COUNT(*) FROM tiles").fetchone()[0]
-            log.info(
-                "  Copying %d tiles into '_tiles_with_rowid' "
-                "(ordered by zoom_level, tile_column, tile_row)…", total
-            )
-
-            con.execute("DROP TABLE IF EXISTS _tiles_with_rowid")
-            con.execute("""
-                CREATE TABLE _tiles_with_rowid (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    zoom_level  INTEGER NOT NULL,
-                    tile_column INTEGER NOT NULL,
-                    tile_row    INTEGER NOT NULL,
-                    tile_data   BLOB
-                )
-            """)
-            con.execute("""
-                INSERT INTO _tiles_with_rowid
-                    (zoom_level, tile_column, tile_row, tile_data)
-                SELECT zoom_level, tile_column, tile_row, tile_data
-                FROM tiles
-                ORDER BY zoom_level, tile_column, tile_row
-            """)
-            con.commit()
-            log.info("  Copy complete.")
-
-            # Replace the original tiles object with a view over the new table
-            if obj_type == "view":
-                con.execute("DROP VIEW tiles")
-            else:
-                con.execute("DROP TABLE tiles")
-
-            con.execute("""
-                CREATE VIEW tiles AS
-                    SELECT id          AS rowid,
-                           zoom_level,
-                           tile_column,
-                           tile_row,
-                           tile_data
-                    FROM _tiles_with_rowid
-            """)
-            con.commit()
-            log.info("  'tiles' view recreated over '_tiles_with_rowid'. Done.")
-
-        finally:
-            con.close()
 
     def _check_script(self) -> None:
         if not os.path.isfile(MBTILES2CC_SCRIPT):
@@ -238,21 +125,13 @@ class TileExtractor(BaseStep):
         The external tool may output to _alllayers/ or directly to the dest
         root — we handle both layouts.
         """
-        tile_dest = os.path.join(self.work_dir, "p12", "tile")
-
-        # Try _alllayers sub-folder first (EsriDE convention), then bare root
-        candidates = [
-            os.path.join(tmp_out, "A3_MyCachedService", "Layers", "_alllayers"),
-            tmp_out,
-        ]
-        source_root = None
-        for candidate in candidates:
-            if os.path.isdir(candidate) and any(
-                e.startswith("L") for e in os.listdir(candidate)
+        tile_dest = os.path.join(self.work_dir, "p12", "tile")        
+        
+        if os.path.isdir(tmp_out) and any(
+                e.startswith("L") for e in os.listdir(tmp_out)
             ):
-                source_root = candidate
-                break
-
+                source_root = tmp_out
+        
         if source_root is None:
             raise RuntimeError(
                 f"No bundle directories found under {tmp_out} after running "
