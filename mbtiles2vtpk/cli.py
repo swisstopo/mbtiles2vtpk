@@ -86,6 +86,16 @@ def main(argv=None) -> int:
         print("\nerror: -i/--input and -o/--output are required for conversion.", file=sys.stderr)
         return 1
 
+    import os
+    if not os.path.isfile(args.input):
+        print(f"\n[ERROR] Input file not found: {args.input}", file=sys.stderr)
+        return 1
+
+    output_dir = os.path.dirname(os.path.abspath(args.output))
+    if not os.path.isdir(output_dir):
+        print(f"\n[ERROR] Output directory does not exist: {output_dir}", file=sys.stderr)
+        return 1
+
     # --- Run conversion ---
     from .converter import MBTiles2VTPKConverter
     from .cache import FetchError

@@ -17,6 +17,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 
 from .base_step import BaseStep
 from ..logger import get_logger
@@ -51,16 +52,13 @@ class TileExtractor(BaseStep):
     def run(self) -> None:
         self._check_script()
 
-        max_zoom = self._read_max_zoom()
-        log.info("Source MBTiles max zoom: %d", max_zoom)
-
         # Temporary output dir placed OUTSIDE work_dir so it is never
         # accidentally included in the final VTPK zip.
         import tempfile
         tmp_out = tempfile.mkdtemp(prefix="mbtiles2cc_")
         log.info("Temp bundle dir: %s", tmp_out)
 
-        self._run_external_tool(max_zoom, tmp_out)
+        self._run_external_tool(tmp_out)
         self._move_bundles(tmp_out)
 
         # Clean up temp dir
@@ -79,43 +77,53 @@ class TileExtractor(BaseStep):
             )
         log.info("Using external tool: %s", MBTILES2CC_SCRIPT)
 
-    def _read_max_zoom(self) -> int:
-        con = sqlite3.connect(self.mbtiles_path)
-        try:
-            cur = con.execute("SELECT value FROM metadata WHERE name='maxzoom'")
-            row = cur.fetchone()
-            return int(row[0]) if row else 0
-        finally:
-            con.close()
-
-    def _run_external_tool(self, max_zoom: int, dest_dir: str) -> None:
+    def _run_external_tool(self, dest_dir: str) -> None:
         cmd = [
-            sys.executable,          # same Python interpreter as caller
+            sys.executable,
+            "-u",
             MBTILES2CC_SCRIPT,
-            "-ml", str(max_zoom),
-            "-s",  self.mbtiles_path,
-            "-d",  dest_dir,
+            "-s", self.mbtiles_path,
+            "-d", dest_dir,
         ]
         log.info("Running: %s", " ".join(cmd))
-
-        result = subprocess.run(
+        process = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            bufsize=1,
         )
 
-        # Forward stdout/stderr from the tool to our logger
-        for line in result.stdout.splitlines():
-            if line.strip():
-                log.info("  [mbtiles2cc] %s", line)
-        for line in result.stderr.splitlines():
-            if line.strip():
-                log.warning("  [mbtiles2cc] %s", line)
+        stderr_lines = []
 
-        if result.returncode != 0:
+        def stream_stdout():
+            for line in process.stdout:
+                line = line.rstrip()
+                if line:
+                    log.info("  [mbtiles2cc stdout] %s", line)
+
+        def stream_stderr():
+            for line in process.stderr:
+                line = line.rstrip()
+                if line:
+                    log.warning("  [mbtiles2cc stderr] %s", line)
+                    stderr_lines.append(line)
+
+        stdout_thread = threading.Thread(target=stream_stdout, daemon=True)
+        stderr_thread = threading.Thread(target=stream_stderr, daemon=True)
+        stdout_thread.start()
+        stderr_thread.start()
+
+        stdout_thread.join()
+        stderr_thread.join()
+        process.wait()
+
+        if process.returncode != 0 or stderr_lines:
             raise RuntimeError(
-                f"mbtiles2compactcache exited with code {result.returncode}"
+                f"mbtiles2compactcache failed (exit code {process.returncode}):\n"
+                + "\n".join(stderr_lines)
             )
+
 
 
 
