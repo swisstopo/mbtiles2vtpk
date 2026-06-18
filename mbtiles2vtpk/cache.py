@@ -104,7 +104,7 @@ def fetch(url: str, category: str = "misc", binary: bool = True) -> bytes:
     path = _cache_path(category, url, ext)
 
     # --- Cache hit ---
-    if os.path.exists(path):
+    if os.path.exists(path) and category not in ('styles'):
         return open(path, "rb").read()
 
     # --- Inject MapTiler credentials if needed ---
