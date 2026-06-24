@@ -1,54 +1,23 @@
 # mbtiles2vtpk
 
-Convert MBTiles vector tile packages to the **ESRI VTPK** format.  
+Repack MBTiles vector tile packages to the **ESRI VTPK** format.
 Tested with ArcGIS Pro and QGIS.
-
+When using --style option, repacks also fonts, glyphs and sprites.
+Some V8 styles may not be supported by Pro or ESRI VT Editor.
 ---
 
 ## Installation
 
 ```bash
-# 1. Clone with submodules
-git clone --recurse-submodules https://github.com/swisstopo/mbtiles2vtpk.git
+# 1. Clone
+git clone https://github.com/swisstopo/mbtiles2vtpk.git
 cd mbtiles2vtpk
 
-# If you already cloned without --recurse-submodules:
+# Init submodules:
 git submodule update --init --recursive
 ```
 
-```bash
-# 2. Create a virtual environment
-python -m venv .venv
-```
-
-**Windows**
-```powershell
-.venv\Scripts\activate
-```
-
-**Linux / macOS**
-```bash
-source .venv/bin/activate
-```
-
-```bash
-# 3. Install the package and its dependencies
-pip install -e .
-pip install joblib
-```
-
-After activation, the `mbtiles2vtpk` command is available in the terminal.  
-Alternatively, use the venv Python directly without activating:
-
-**Windows**
-```powershell
-.venv\Scripts\python.exe mbtiles2vtpk -i input.mbtiles -o output.vtpk
-```
-
-**Linux / macOS**
-```bash
-.venv/bin/python mbtiles2vtpk -i input.mbtiles -o output.vtpk
-```
+The `mbtiles2vtpk` command is then available in the terminal.
 
 ---
 
@@ -58,6 +27,10 @@ Alternatively, use the venv Python directly without activating:
 
 ```bash
 mbtiles2vtpk -i input.mbtiles -o output.vtpk
+
+or as a script
+
+mbtiles2vtpk\__main__,py -i input.mbtiles -o output.vtpk
 ```
 
 ### With a custom Mapbox GL style
@@ -104,6 +77,24 @@ Run > Edit Configurations
   → Module name : mbtiles2vtpk.cli
   → Parameters  : -i input.mbtiles -o output.vtpk [--style ...]
   → Working dir : <repo root>
+```
+
+---
+
+## Docker
+
+```bash
+# Build the image
+docker build -t mbtiles2vtpk .
+
+# Basic conversion (mount a local directory)
+docker run --rm -v /path/to/data:/data mbtiles2vtpk -i /data/input.mbtiles -o /data/output.vtpk
+
+# With a style URL
+docker run --rm -v /path/to/data:/data mbtiles2vtpk -i /data/input.mbtiles -o /data/output.vtpk --style https://raw.githubusercontent.com/mapbox/mapbox-gl-styles/master/styles/basic-v8.json
+
+# With MapTiler credentials
+docker run --rm -v /path/to/data:/data -e MAPTILER_KEY=your_key_here -e MAPTILER_ORIGIN=https://your-app.example.com mbtiles2vtpk -i /data/input.mbtiles -o /data/output.vtpk --style https://api.maptiler.com/...
 ```
 
 ---
